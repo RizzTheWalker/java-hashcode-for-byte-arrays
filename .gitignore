@@ -1,0 +1,10 @@
+/.gradle/
+/build/
+/bin/
+/.idea/
+/.vs/
+/.classpath
+/.project
+/.settings/
+/.venv/
+/gradle.properties

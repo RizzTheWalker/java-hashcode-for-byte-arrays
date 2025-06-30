@@ -1,0 +1,186 @@
+/*
+ * Copyright 2025 Dynatrace LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+plugins {
+	id 'java-library'
+	id 'jacoco'
+	id 'me.champeau.jmh' version '0.7.2'
+	id 'com.diffplug.spotless' version '6.25.0'
+}
+
+repositories {
+	mavenCentral()
+}
+
+group = 'com.dynatrace'
+version = '1.0-SNAPSHOT'
+
+
+dependencies {
+	testImplementation group: "org.junit.jupiter", name: "junit-jupiter-api", version: "5.13.0"
+	testRuntimeOnly group: "org.junit.jupiter", name: "junit-jupiter-engine", version: "5.13.0"
+	testImplementation group: "org.junit.jupiter", name: "junit-jupiter-params", version: "5.13.0"
+	testRuntimeOnly group: 'org.junit.platform', name: 'junit-platform-launcher', version: "1.13.0"
+	testImplementation group: 'org.assertj', name: 'assertj-core', version: '3.26.3'
+}
+
+java {
+	toolchain {
+		languageVersion.set(JavaLanguageVersion.of(24))
+	}
+	withSourcesJar()
+}
+
+var incubatorArguments = [
+	"--enable-preview",
+	"--add-modules",
+	"jdk.incubator.vector"
+]
+
+tasks.withType(AbstractCompile) { options.compilerArgs += incubatorArguments }
+tasks.withType(Test) { jvmArgs += incubatorArguments }
+
+
+test {
+	useJUnitPlatform()
+}
+
+static def readJavaLicense(licenseName) {
+	File licenseFile = new File("licenses/" + licenseName + ".txt")
+	def line
+	def s = "/*\n"
+	licenseFile.withReader { reader ->
+		while ((line = reader.readLine()) != null) {
+			s += " *"
+			if(!line.isEmpty()) {
+				s += " "
+				s += line
+			}
+			s += "\n"
+		}
+	}
+	s += " */"
+	return s
+}
+
+static def readPythonLicense(licenseName) {
+	File licenseFile = new File("licenses/" + licenseName + ".txt")
+	def line
+	def s = "#\n"
+	licenseFile.withReader { reader ->
+		while ((line = reader.readLine()) != null) {
+			s += "#"
+			if(!line.isEmpty()) {
+				s += " "
+				s += line
+			}
+			s += "\n"
+		}
+	}
+	s += "#"
+	return s
+}
+
+apply plugin: 'groovy'
+spotless {
+	def googleJavaFormatVersion = '1.26.0'
+	def greclipseVersion = '4.29'
+	def blackVersion = "25.1.0"
+
+	groovy {
+		importOrder()
+		removeSemicolons()
+		greclipse(greclipseVersion)
+		licenseHeader readJavaLicense("APACHE_2_0_DYNATRACE"), "(package|import|public|class|module|plugins) "
+		target("**/build.gradle")
+	}
+
+	java {
+		importOrder()
+		removeUnusedImports()
+		cleanthat()
+		googleJavaFormat(googleJavaFormatVersion)
+		formatAnnotations()
+		licenseHeader readJavaLicense("APACHE_2_0_DYNATRACE")
+	}
+	python {
+		target "python/**/*.py"
+		black(blackVersion)
+		licenseHeader readPythonLicense("APACHE_2_0_DYNATRACE"), "(import|from)"
+	}
+}
+
+sourceSets {
+	jmh
+	main
+	test
+}
+
+
+jacoco {
+	toolVersion = '0.8.13'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true
+		csv.required = true
+	}
+}
+
+jacocoTestCoverageVerification {
+	violationRules {
+		rule {
+			limit {
+				minimum = 1.0
+				counter = 'LINE'
+			}
+			limit {
+				minimum = 1.0
+				counter = 'BRANCH'
+			}
+		}
+	}
+}
+
+
+tasks.register('copyBenchmarkReport', Copy) {
+	from('build/results/jmh/') {
+		include 'results.*'
+		rename 'results', 'benchmark-results'
+	}
+	into 'benchmark-results'
+}
+
+tasks.register('deleteBenchmarkReport', Delete) {
+	delete 'build/results/jmh/results.json'
+}
+
+tasks.jmh.finalizedBy copyBenchmarkReport
+tasks.copyBenchmarkReport.finalizedBy deleteBenchmarkReport
+
+jmh {
+	fork = 1
+	timeUnit = 'ns'
+	failOnError = false
+	timeOnIteration = '200ms'
+	warmupForks = 0
+	warmupIterations = 3
+	warmupBatchSize = 1
+	warmup = '200ms'
+	iterations = 10
+	resultFormat = 'JSON'
+	jvmArgs.set(incubatorArguments)
+}
